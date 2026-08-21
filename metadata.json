@@ -1,0 +1,7 @@
+{
+  "name": "YouTube to MP3 Converter",
+  "description": "Fast, simple YouTube to MP3 converter and direct audio downloader with high quality audio extraction and media player.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
