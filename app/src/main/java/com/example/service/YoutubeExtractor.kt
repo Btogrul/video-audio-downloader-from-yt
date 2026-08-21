@@ -29,6 +29,68 @@ object YoutubeExtractor {
         Pattern.compile("^([a-zA-Z0-9_-]{11})$")
     )
 
+    /**
+     * Automatically converts short or malformed youtu.be links to canonical youtube.com/watch?v=... links
+     * Example: https://youtu.be/watch?v=KHYfygE9FYc&list=RDKHYfygE9FYc&start_radio=1 -> https://www.youtube.com/watch?v=KHYfygE9FYc&list=RDKHYfygE9FYc&start_radio=1
+     * Example: https://youtu.be/KHYfygE9FYc -> https://www.youtube.com/watch?v=KHYfygE9FYc
+     */
+    fun normalizeYouTubeUrl(rawUrl: String): String {
+        val trimmed = rawUrl.trim()
+        if (trimmed.isEmpty()) return trimmed
+
+        if (!trimmed.contains("youtu.be", ignoreCase = true)) {
+            return trimmed
+        }
+
+        var urlToParse = trimmed
+        if (!urlToParse.startsWith("http://", ignoreCase = true) && !urlToParse.startsWith("https://", ignoreCase = true)) {
+            urlToParse = "https://$urlToParse"
+        }
+
+        try {
+            val uri = java.net.URI(urlToParse)
+            val host = uri.host ?: ""
+            if (host.equals("youtu.be", ignoreCase = true) || host.endsWith(".youtu.be", ignoreCase = true)) {
+                val path = uri.rawPath ?: ""
+                val query = uri.rawQuery
+
+                // Case 1: https://youtu.be/watch?v=...
+                if (path.startsWith("/watch", ignoreCase = true)) {
+                    val queryString = if (!query.isNullOrEmpty()) "?$query" else ""
+                    return "https://www.youtube.com$path$queryString"
+                }
+
+                // Case 2: https://youtu.be/<videoId>
+                val pathSegments = path.trim('/').split('/')
+                val videoIdFromPath = pathSegments.firstOrNull { it.isNotEmpty() }
+
+                if (!videoIdFromPath.isNullOrEmpty()) {
+                    val queryParams = mutableListOf<String>()
+                    queryParams.add("v=$videoIdFromPath")
+                    if (!query.isNullOrEmpty()) {
+                        query.split('&').forEach { param ->
+                            if (!param.startsWith("v=", ignoreCase = true) && param.isNotEmpty()) {
+                                queryParams.add(param)
+                            }
+                        }
+                    }
+                    return "https://www.youtube.com/watch?" + queryParams.joinToString("&")
+                }
+            }
+        } catch (e: Exception) {
+            // Fallback string replacement if URI parsing encounters illegal chars
+            if (trimmed.contains("youtu.be/watch", ignoreCase = true)) {
+                return trimmed.replace(Regex("(https?://)?(www\\.)?youtu\\.be/", RegexOption.IGNORE_CASE), "https://www.youtube.com/")
+            }
+            val videoId = extractVideoId(trimmed)
+            if (videoId != null) {
+                return "https://www.youtube.com/watch?v=$videoId"
+            }
+        }
+
+        return trimmed
+    }
+
     fun extractVideoId(url: String): String? {
         val trimmed = url.trim()
         for (pattern in YOUTUBE_PATTERNS) {

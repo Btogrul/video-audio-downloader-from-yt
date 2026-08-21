@@ -96,16 +96,17 @@ class ConverterViewModel(application: Application) : AndroidViewModel(applicatio
     )
 
     fun onUrlInputChanged(newUrl: String) {
+        val normalized = YoutubeExtractor.normalizeYouTubeUrl(newUrl)
         _uiState.value = _uiState.value.copy(
-            urlInput = newUrl,
+            urlInput = normalized,
             previewError = null
         )
 
         // Automatically trigger metadata preview if valid video ID found
-        val videoId = YoutubeExtractor.extractVideoId(newUrl)
+        val videoId = YoutubeExtractor.extractVideoId(normalized)
         if (videoId != null && videoId != _uiState.value.previewMetadata?.videoId) {
-            fetchPreview(newUrl)
-        } else if (newUrl.isBlank()) {
+            fetchPreview(normalized)
+        } else if (normalized.isBlank()) {
             _uiState.value = _uiState.value.copy(previewMetadata = null, previewError = null)
         }
     }

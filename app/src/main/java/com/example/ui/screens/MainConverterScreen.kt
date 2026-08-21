@@ -1,7 +1,13 @@
 package com.example.ui.screens
 
+import android.Manifest
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -100,6 +106,31 @@ fun MainConverterScreen(
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    // Dynamic runtime permissions handling
+    val permissionsToRequest = remember { getRequiredAppPermissions() }
+    var hasAllPermissions by remember {
+        mutableStateOf(
+            permissionsToRequest.all { perm ->
+                ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
+            }
+        )
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissionsMap ->
+        hasAllPermissions = permissionsToRequest.all { perm ->
+            permissionsMap[perm] == true || ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    // Auto-prompt for necessary permissions on first launch
+    LaunchedEffect(Unit) {
+        if (!hasAllPermissions) {
+            permissionLauncher.launch(permissionsToRequest)
+        }
+    }
+
     LaunchedEffect(Unit) {
         viewModel.toastEvent.collectLatest { message ->
             snackbarHostState.showSnackbar(message)
@@ -190,6 +221,21 @@ fun MainConverterScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             // Main Converter Input Section Card
+            if (!hasAllPermissions) {
+                item {
+                    PermissionsBannerCard(
+                        onRequestPermissions = {
+                            val missing = permissionsToRequest.filter {
+                                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+                            }
+                            if (missing.isNotEmpty()) {
+                                permissionLauncher.launch(missing.toTypedArray())
+                            }
+                        }
+                    )
+                }
+            }
+
             item {
                 ConverterMainCard(
                     uiState = uiState,
@@ -206,7 +252,17 @@ fun MainConverterScreen(
                     onSelectPreset = { viewModel.selectPreset(it) },
                     onFormatSelected = { viewModel.setFormat(it) },
                     onBitrateSelected = { viewModel.setBitrate(it) },
-                    onConvertClicked = { viewModel.startConversionAndDownload(context) }
+                    onConvertClicked = {
+                        if (!hasAllPermissions) {
+                            val missing = permissionsToRequest.filter {
+                                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+                            }
+                            if (missing.isNotEmpty()) {
+                                permissionLauncher.launch(missing.toTypedArray())
+                            }
+                        }
+                        viewModel.startConversionAndDownload(context)
+                    }
                 )
             }
 
@@ -636,3 +692,97 @@ private fun EmptyDownloadsView(
         }
     }
 }
+
+@Composable
+private fun PermissionsBannerCard(
+    onRequestPermissions: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+        ),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("permissions_banner_card")
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp)
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DownloadDone,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Storage & Media Permissions",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Allow access to save MP3 music and MP4 videos directly to your device and receive download notifications.",
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Button(
+                onClick = onRequestPermissions,
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                ),
+                modifier = Modifier.testTag("grant_permissions_btn")
+            ) {
+                Text(
+                    text = "Allow",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+        }
+    }
+}
+
+private fun getRequiredAppPermissions(): Array<String> {
+    return when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
+            arrayOf(
+                Manifest.permission.READ_MEDIA_AUDIO,
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.POST_NOTIFICATIONS
+            )
+        }
+        Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q -> {
+            arrayOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            )
+        }
+        else -> {
+            arrayOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            )
+        }
+    }
+}
+
